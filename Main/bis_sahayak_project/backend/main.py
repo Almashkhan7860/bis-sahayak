@@ -24,8 +24,6 @@ app = FastAPI(title="BIS-Sahayak AI API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    # Replace "*" with your real Netlify URL once deployed, e.g.:
-    # allow_origins=["https://your-site-name.netlify.app"]
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
