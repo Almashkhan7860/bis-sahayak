@@ -1,0 +1,16 @@
+# Secrets - NEVER commit these
+.env
+pass.txt
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Vector DB cache (regenerated automatically)
+faiss_index/
+
+# OS/editor junk
+.DS_Store
+.vscode/
