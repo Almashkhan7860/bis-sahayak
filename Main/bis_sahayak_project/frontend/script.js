@@ -3,6 +3,9 @@
   // BACKEND CONNECTION
   // ============================================================
   var CHAT_API_URL = window.BIS_MITRA_API_URL || "";
+  var CHAT_REQUEST_URL = CHAT_API_URL
+    ? CHAT_API_URL.replace(/\/$/, "") + "/api/chat"
+    : "";
   var FEEDBACK_API_URL = window.BIS_MITRA_FEEDBACK_URL ||
     (CHAT_API_URL ? CHAT_API_URL.replace(/\/api\/chat$/, "/api/feedback") : "");
 
@@ -70,15 +73,19 @@
   }
 
   async function getAnswer(query) {
-    if (CHAT_API_URL) {
-      var res = await fetch(CHAT_API_URL, {
+    if (CHAT_REQUEST_URL) {
+      var res = await fetch(CHAT_REQUEST_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: query, conversation_id: CONVERSATION_ID }),
+        body: JSON.stringify({
+          query: query,
+          conversation_id: CONVERSATION_ID,
+        }),
       });
       if (!res.ok) throw new Error("Server responded with " + res.status);
       var data = await res.json();
-      if (data.success === false) throw new Error(data.error || "Backend returned an error");
+      if (data.success === false)
+        throw new Error(data.error || "Backend returned an error");
       return {
         mode: "live",
         log_id: data.log_id,
