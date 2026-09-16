@@ -26,7 +26,7 @@ app.add_middleware(
     CORSMiddleware,
     # Replace "*" with your real Netlify URL once deployed, e.g.:
     # allow_origins=["https://your-site-name.netlify.app"]
-    allow_origins=["https://bis-friend.netlify.app/"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
