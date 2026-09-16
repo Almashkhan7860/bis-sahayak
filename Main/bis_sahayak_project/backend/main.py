@@ -24,7 +24,11 @@ app = FastAPI(title="BIS-Sahayak AI API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://bis-friend.netlify.app",
+        "http://localhost:3000",
+        "http://127.0.0.1:8000"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
