@@ -4,7 +4,8 @@ from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -12,7 +13,6 @@ load_dotenv()
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 CHAT_MODEL = os.getenv("CHAT_MODEL", "gemini-3.6-flash")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-001")
 
 if not GOOGLE_API_KEY:
     raise RuntimeError(
@@ -29,8 +29,8 @@ FAISS_INDEX_PATH = "faiss_index"
 # print the raw scores (see _score_bucket) while testing with your own
 # BIS PDFs and adjust these two numbers if High/Medium feels wrong.
 # ------------------------------------------------------------------
-DISTANCE_HIGH_CONFIDENCE = 0.45   # avg distance below this -> "High"
-DISTANCE_MEDIUM_CONFIDENCE = 0.85  # below this -> "Medium", above -> not grounded
+DISTANCE_HIGH_CONFIDENCE = 1.15   # avg distance below this -> "High"
+DISTANCE_MEDIUM_CONFIDENCE = 1.45  # below this -> "Medium", above -> not grounded
 
 MAX_HISTORY_TURNS = 3  # how many previous Q&A pairs to remember per conversation
 
@@ -40,11 +40,14 @@ class BISRAGEngine:
         self.data_folder = data_folder or os.getenv("DATA_FOLDER", "./data")
         self.vectorstore = None
         self.qa_chain = None
-        self.embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL)
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
+        )
         # conversation_id -> list of {"query": ..., "answer": ...} (most recent last)
         # NOTE: in-memory only — resets on server restart. Fine for a demo;
         # move this to a Supabase table if you need it to persist later.
         self.conversations = {}
+        self.response_cache = {}
         self.init_rag()
 
     def init_rag(self):
@@ -101,7 +104,7 @@ class BISRAGEngine:
             raise RuntimeError(f"'{self.data_folder}' exists but no readable PDF pages were found.")
 
         print(f"[rag_engine] Loaded {len(docs)} pages. Chunking...")
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
         final_documents = text_splitter.split_documents(docs)
 
         print(f"[rag_engine] Creating vector database from {len(final_documents)} chunks...")
@@ -149,17 +152,27 @@ class BISRAGEngine:
             return "Medium", True
         return "Low", False  # False = not grounded enough, don't trust the LLM here
 
+    def _cache_and_return(self, clean_query, result):
+        self.response_cache[clean_query] = result
+        return result
+
     def ask(self, query: str, conversation_id: str = None) -> dict:
+        clean_query = query.strip().lower()
+        if clean_query in self.response_cache:
+            print("[rag_engine] Returning response from CACHE (0 API calls used)!")
+            return self.response_cache[clean_query]
+
         search_query = self._contextualized_query(query, conversation_id)
 
         # Retrieve with scores so we can compute evidence-based confidence
         # and decide whether we're actually grounded before calling the LLM.
-        results = self.vectorstore.similarity_search_with_score(search_query, k=5)
+        results = self.vectorstore.similarity_search_with_score(search_query, k=3)
 
         if not results:
             answer = "I couldn't verify this from the available BIS documents."
             self._save_turn(conversation_id, query, answer)
-            return {"answer": answer, "citations": [], "confidence": "Low (No match found)"}
+            result = {"answer": answer, "citations": [], "confidence": "Low (No match found)"}
+            return self._cache_and_return(clean_query, result)
 
         docs = [doc for doc, _score in results]
         avg_distance = sum(score for _doc, score in results) / len(results)
@@ -168,7 +181,8 @@ class BISRAGEngine:
         if not is_grounded:
             answer = "I couldn't verify this from the available BIS documents."
             self._save_turn(conversation_id, query, answer)
-            return {"answer": answer, "citations": [], "confidence": f"Low (weak match, distance={avg_distance:.2f})"}
+            result = {"answer": answer, "citations": [], "confidence": f"Low (weak match, distance={avg_distance:.2f})"}
+            return self._cache_and_return(clean_query, result)
 
         history_text = self._get_history_text(conversation_id)
         answer = self.qa_chain.invoke({"input": query, "context": docs, "chat_history": history_text})
@@ -178,11 +192,12 @@ class BISRAGEngine:
         # show citations/confidence that contradict that — be honest.
         if "couldn't verify this" in answer.lower():
             self._save_turn(conversation_id, query, answer)
-            return {
+            result = {
                 "answer": answer,
                 "citations": [],
                 "confidence": "Low (insufficient information in provided documents)",
             }
+            return self._cache_and_return(clean_query, result)
 
         citations = []
         for doc in docs:
@@ -196,8 +211,9 @@ class BISRAGEngine:
 
         self._save_turn(conversation_id, query, answer)
 
-        return {
+        result = {
             "answer": answer,
             "citations": citations,
             "confidence": f"{confidence_label} (Verified Source)",
         }
+        return self._cache_and_return(clean_query, result)
