@@ -29,8 +29,8 @@ FAISS_INDEX_PATH = "faiss_index"
 # print the raw scores (see _score_bucket) while testing with your own
 # BIS PDFs and adjust these two numbers if High/Medium feels wrong.
 # ------------------------------------------------------------------
-DISTANCE_HIGH_CONFIDENCE = 1.25  # avg distance below this -> "High"
-DISTANCE_MEDIUM_CONFIDENCE = 1.50  # below this -> "Medium", above -> not grounded
+DISTANCE_HIGH_CONFIDENCE = 1.35  # avg distance below this -> "High"
+DISTANCE_MEDIUM_CONFIDENCE = 1.85  # below this -> "Medium", above -> not grounded
 
 MAX_HISTORY_TURNS = 3  # how many previous Q&A pairs to remember per conversation
 
