@@ -1,3 +1,4 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
 fastapi
 uvicorn[standard]
 pydantic
@@ -11,6 +12,7 @@ langchain-community
 langchain-core
 langchain-text-splitters
 langchain-google-genai
+torch
 langchain-huggingface
 sentence-transformers
 

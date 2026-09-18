@@ -41,7 +41,8 @@ class BISRAGEngine:
         self.vectorstore = None
         self.qa_chain = None
         self.embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
+            model_name="sentence-transformers/all-MiniLM-L6-v2",
+            model_kwargs={"device": "cpu"},
         )
         # conversation_id -> list of {"query": ..., "answer": ...} (most recent last)
         # NOTE: in-memory only — resets on server restart. Fine for a demo;
