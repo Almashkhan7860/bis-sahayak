@@ -90,6 +90,7 @@
         mode: "live",
         log_id: data.log_id,
         answer: data.answer,
+        related_questions: data.related_questions || [],
         citations: data.citations || [],
         confidence: data.confidence || "",
       };
@@ -330,6 +331,30 @@
     }
 
     body.appendChild(card);
+
+    var sugBox = document.getElementById("suggestions-box");
+    if (sugBox) {
+      sugBox.innerHTML = "";
+      sugBox.className = "bm-suggestions-container related-questions-container";
+    }
+
+    if (sugBox && r.related_questions && r.related_questions.length > 0) {
+      var heading = document.createElement("p");
+      heading.textContent = "Suggested Questions:";
+      heading.className = "bm-suggestions-heading";
+      sugBox.appendChild(heading);
+
+      r.related_questions.forEach(function (question) {
+        var btn = document.createElement("button");
+        btn.className = "bm-suggestion-btn suggestion-btn";
+        btn.type = "button";
+        btn.textContent = question;
+        btn.addEventListener("click", function () {
+          handleSend(question);
+        });
+        sugBox.appendChild(btn);
+      });
+    }
     scrollDown();
   }
 
@@ -358,6 +383,8 @@
     if (!q) return;
     input.value = "";
     chipsEl.innerHTML = "";
+    var sugBox = document.getElementById("suggestions-box");
+    if (sugBox) sugBox.innerHTML = "";
     addUserMsg(q);
     addTyping();
     sendBtn.disabled = true;

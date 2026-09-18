@@ -84,6 +84,7 @@ def chat(data: QueryModel, db: Session = Depends(get_db)):
         "success": True,
         "log_id": log_id,
         "answer": result["answer"],
+        "related_questions": result.get("related_questions", []),
         "citations": result["citations"],
         "confidence": result["confidence"],
     }

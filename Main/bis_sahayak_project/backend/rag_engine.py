@@ -1,4 +1,5 @@
 import os
+import re
 from dotenv import load_dotenv
 
 from langchain_community.document_loaders import PyPDFDirectoryLoader
@@ -34,6 +35,64 @@ DISTANCE_MEDIUM_CONFIDENCE = 1.85  # below this -> "Medium", above -> not ground
 
 MAX_HISTORY_TURNS = 3  # how many previous Q&A pairs to remember per conversation
 
+PROMPT_TEMPLATE = """
+You are a strict technical AI assistant for BIS (Bureau of Indian Standards).
+
+STRICT RULES TO PREVENT HALLUCINATION:
+1. Answer the user query using ONLY the provided context below.
+2. If the exact answer is not found in the context, explicitly state: "I couldn't verify this from the available BIS documents."
+3. Do NOT use outside general knowledge or assume technical specifications.
+4. Generate 2-3 Related Follow-up Questions. EVERY question MUST be strictly derived from and answerable by the context below. Do NOT invent new topics.
+
+Context:
+{context}
+
+Question:
+{input}
+
+Provide the response strictly in the following structure:
+**Direct Answer:**
+<Direct, concise answer here>
+
+**Key Points:**
+* <Key point 1>
+* <Key point 2>
+
+**Related Questions:**
+* <Follow-up question 1 derived strictly from context>
+* <Follow-up question 2 derived strictly from context>
+"""
+
+
+def parse_llm_response(text: str):
+    related_questions = []
+    if "**Related Questions:**" in text:
+        parts = text.split("**Related Questions:**", 1)
+        main_answer = parts[0].strip()
+        questions_text = parts[1].strip()
+
+        for line in questions_text.split("\n"):
+            line = line.strip()
+            if line.startswith("*") or line.startswith("-"):
+                clean_q = re.sub(r"^[\*\-\d\.\s]+", "", line).strip()
+                if clean_q:
+                    related_questions.append(clean_q)
+    else:
+        main_answer = text.strip()
+
+    return main_answer, related_questions
+
+
+def format_response_with_questions(raw_llm_response: str):
+    main_answer, related_questions = parse_llm_response(raw_llm_response)
+    if not related_questions:
+        return raw_llm_response.strip()
+
+    formatted_questions = "\n".join(
+        f"* 💡 `{question}`" for question in related_questions
+    )
+    return f"{main_answer}\n\n---\n**Suggested Questions:**\n{formatted_questions}"
+
 
 class BISRAGEngine:
     def __init__(self, data_folder: str = None):
@@ -60,31 +119,8 @@ class BISRAGEngine:
         else:
             self._build_vectorstore_from_pdfs()
 
-        # ---- Structured, grounded system prompt ----
-        system_prompt = (
-            "You are BIS-Sahayak, a trusted AI assistant for the Bureau of Indian Standards.\n"
-            "Answer the question STRICTLY and ONLY using the Context below. Do not use outside "
-            "knowledge, even if you know the answer generally — this context is the verified source "
-            "of truth.\n\n"
-            "If the Context does not contain enough information to answer, reply EXACTLY: "
-            "\"I couldn't verify this from the available BIS documents.\" Do not guess.\n\n"
-            "If there is a Conversation History below, use it only to understand what the user's "
-            "current question is referring to (e.g. pronouns like 'it', 'this standard'). Still "
-            "answer strictly from the Context.\n\n"
-            "Format your answer using EXACTLY this structure, with these markdown headers:\n"
-            "**Direct Answer:** A single clear sentence answering the question.\n"
-            "**Key Points:** 2-4 bullet points with the core facts.\n"
-            "**Important Details/Conditions:** Any exceptions, conditions, or caveats (omit this "
-            "section entirely if there are none).\n\n"
-            "Respond in the same language as the user's current question (Hindi or English). Do "
-            "not include a 'Sources' section — that is added separately by the system.\n\n"
-            "Conversation History:\n{chat_history}\n\n"
-            "Context:\n{context}"
-        )
-
         prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            ("human", "{input}"),
+            ("human", PROMPT_TEMPLATE),
         ])
 
         llm = ChatGoogleGenerativeAI(model=CHAT_MODEL, temperature=0.1)
@@ -172,7 +208,12 @@ class BISRAGEngine:
         if not results:
             answer = "I couldn't verify this from the available BIS documents."
             self._save_turn(conversation_id, query, answer)
-            result = {"answer": answer, "citations": [], "confidence": "Low (No match found)"}
+            result = {
+                "answer": answer,
+                "related_questions": [],
+                "citations": [],
+                "confidence": "Low (No match found)",
+            }
             return self._cache_and_return(clean_query, result)
 
         docs = [doc for doc, _score in results]
@@ -182,7 +223,12 @@ class BISRAGEngine:
         if not is_grounded:
             answer = "I couldn't verify this from the available BIS documents."
             self._save_turn(conversation_id, query, answer)
-            result = {"answer": answer, "citations": [], "confidence": f"Low (weak match, distance={avg_distance:.2f})"}
+            result = {
+                "answer": answer,
+                "related_questions": [],
+                "citations": [],
+                "confidence": f"Low (weak match, distance={avg_distance:.2f})",
+            }
             return self._cache_and_return(clean_query, result)
 
         history_text = self._get_history_text(conversation_id)
@@ -193,8 +239,10 @@ class BISRAGEngine:
         # show citations/confidence that contradict that — be honest.
         if "couldn't verify this" in answer.lower():
             self._save_turn(conversation_id, query, answer)
+            main_answer, related_questions = parse_llm_response(answer)
             result = {
-                "answer": answer,
+                "answer": format_response_with_questions(answer),
+                "related_questions": related_questions,
                 "citations": [],
                 "confidence": "Low (insufficient information in provided documents)",
             }
@@ -210,10 +258,12 @@ class BISRAGEngine:
                 citations.append(source_file)
         citations = list(dict.fromkeys(citations))  # de-dupe, keep order
 
-        self._save_turn(conversation_id, query, answer)
+        main_answer, related_questions = parse_llm_response(answer)
+        self._save_turn(conversation_id, query, main_answer)
 
         result = {
-            "answer": answer,
+            "answer": format_response_with_questions(answer),
+            "related_questions": related_questions,
             "citations": citations,
             "confidence": f"{confidence_label} (Verified Source)",
         }
