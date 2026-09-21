@@ -6,7 +6,7 @@ from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -102,6 +102,7 @@ class BISRAGEngine:
         self.embeddings = HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2",
             model_kwargs={"device": "cpu"},
+            encode_kwargs={"normalize_embeddings": True},
         )
         # conversation_id -> list of {"query": ..., "answer": ...} (most recent last)
         # NOTE: in-memory only — resets on server restart. Fine for a demo;
