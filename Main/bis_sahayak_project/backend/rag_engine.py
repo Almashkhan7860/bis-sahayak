@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from dotenv import load_dotenv
 
 from langchain_community.document_loaders import PyPDFDirectoryLoader
@@ -26,6 +27,7 @@ if os.getenv("GEMINI_API_KEY"):
     os.environ.pop("GOOGLE_API_KEY", None)
 
 FAISS_INDEX_PATH = os.getenv("FAISS_INDEX_PATH", "faiss_index_gemini")
+BATCH_SIZE = 80
 
 # ------------------------------------------------------------------
 # Grounding / confidence thresholds (FAISS L2 distance, lower = more
@@ -159,8 +161,24 @@ class BISRAGEngine:
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
         final_documents = text_splitter.split_documents(docs)
 
-        print(f"[rag_engine] Creating vector database from {len(final_documents)} chunks...")
-        self.vectorstore = FAISS.from_documents(final_documents, self.embeddings)
+        print(
+            f"[rag_engine] Creating vector database from {len(final_documents)} "
+            f"chunks in batches of {BATCH_SIZE}..."
+        )
+        self.vectorstore = None
+        for i in range(0, len(final_documents), BATCH_SIZE):
+            batch = final_documents[i:i + BATCH_SIZE]
+            if self.vectorstore is None:
+                self.vectorstore = FAISS.from_documents(batch, self.embeddings)
+            else:
+                self.vectorstore.add_documents(batch)
+
+            done = min(i + BATCH_SIZE, len(final_documents))
+            print(f"[rag_engine] Embedded {done}/{len(final_documents)} chunks...")
+            if done < len(final_documents):
+                print("[rag_engine] Waiting 65s to respect free-tier rate limit...")
+                time.sleep(65)
+
         self.vectorstore.save_local(FAISS_INDEX_PATH)
         print(f"[rag_engine] FAISS index saved to '{FAISS_INDEX_PATH}/'.")
 
