@@ -6,23 +6,26 @@ from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_community.embeddings import FastEmbedEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_classic.embeddings import CacheBackedEmbeddings
+from langchain_classic.storage import InMemoryByteStore
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 
 load_dotenv()
 
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 CHAT_MODEL = os.getenv("CHAT_MODEL", "gemini-3.6-flash")
 
-if not GOOGLE_API_KEY:
+if not GEMINI_API_KEY:
     raise RuntimeError(
-        "GOOGLE_API_KEY not found. Make sure you created a '.env' file "
+        "GEMINI_API_KEY not found. Make sure you created a '.env' file "
         "(copy .env.example -> .env) and filled in your Gemini API key."
     )
-os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
+if os.getenv("GEMINI_API_KEY"):
+    os.environ.pop("GOOGLE_API_KEY", None)
 
-FAISS_INDEX_PATH = "faiss_index"
+FAISS_INDEX_PATH = os.getenv("FAISS_INDEX_PATH", "faiss_index_gemini")
 
 # ------------------------------------------------------------------
 # Grounding / confidence thresholds (FAISS L2 distance, lower = more
@@ -99,8 +102,17 @@ class BISRAGEngine:
         self.data_folder = data_folder or os.getenv("DATA_FOLDER", "./data")
         self.vectorstore = None
         self.qa_chain = None
-        self.embeddings = FastEmbedEmbeddings(
-            model_name="BAAI/bge-small-en-v1.5",
+        self.embedding_store = InMemoryByteStore()
+        underlying_embeddings = GoogleGenerativeAIEmbeddings(
+            model="models/embedding-001",
+            google_api_key=GEMINI_API_KEY,
+        )
+        self.embeddings = CacheBackedEmbeddings.from_bytes_store(
+            underlying_embeddings,
+            self.embedding_store,
+            namespace=underlying_embeddings.model,
+            query_embedding_cache=True,
+            key_encoder="sha256",
         )
         # conversation_id -> list of {"query": ..., "answer": ...} (most recent last)
         # NOTE: in-memory only — resets on server restart. Fine for a demo;
@@ -122,7 +134,11 @@ class BISRAGEngine:
             ("human", PROMPT_TEMPLATE),
         ])
 
-        llm = ChatGoogleGenerativeAI(model=CHAT_MODEL, temperature=0.1)
+        llm = ChatGoogleGenerativeAI(
+            model=CHAT_MODEL,
+            temperature=0.1,
+            google_api_key=GEMINI_API_KEY,
+        )
         self.qa_chain = create_stuff_documents_chain(llm, prompt)
         print("[rag_engine] RAG Engine Ready!")
 
