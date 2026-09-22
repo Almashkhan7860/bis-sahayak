@@ -6,15 +6,15 @@ python-dotenv
 sqlalchemy
 psycopg2-binary
 
+
 langchain
 langchain-classic
 langchain-community
 langchain-core
 langchain-text-splitters
 langchain-google-genai
-torch
-langchain-huggingface
-sentence-transformers
+fastembed
 
 faiss-cpu
 pypdf
+
