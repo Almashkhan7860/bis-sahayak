@@ -104,7 +104,7 @@ class BISRAGEngine:
         self.qa_chain = None
         self.embedding_store = InMemoryByteStore()
         underlying_embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/text-embedding-004",
+            model="models/gemini-embedding-001",
             google_api_key=GEMINI_API_KEY,
         )
         self.embeddings = CacheBackedEmbeddings.from_bytes_store(
